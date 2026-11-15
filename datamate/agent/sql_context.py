@@ -69,37 +69,13 @@ class SQLContextBuilder:
             raise ValueError("Catalog không thuộc business đang hỏi")
         tables = []
         with SQLExecutor.connect(database, split.calendar) as connection:
-            # Point 2: Check and apply cached canonical views & debt layer from DataMate
-            views_dir = Path(getattr(self.cfg, "views_from", "configs/public_v9") or "configs/public_v9")
+            # Point 2: nếu DB chưa có v_sales (đường ingest không phải direct) thì dựng từ layer đã lưu
+            views_dir = Path(getattr(self, "cfg").views_from or "configs/public_v9")
             if getattr(self.cfg, "views", "cached") != "none" and views_dir.is_dir():
-                v_file = views_dir / f"_views_{business_id}.json"
-                d_file = views_dir / f"_debt_{business_id}.json"
-                try:
-                    has_v_sales = bool(connection.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'v_sales'").fetchone())
-                except Exception:
-                    has_v_sales = False
-                if not has_v_sales and v_file.is_file():
-                    try:
-                        import json
-                        from datamate import views
-                        v_sql = json.loads(v_file.read_text(encoding="utf-8"))
-                        views.build(connection, v_sql)
-                    except Exception as err:
-                        print(f"[{business_id}] Bỏ qua tải v_sales từ {v_file.name}: {err}", flush=True)
-                if getattr(self.cfg, "debt_views", True) and d_file.is_file():
-                    try:
-                        has_debt = bool(connection.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'v_debt_orders'").fetchone())
-                    except Exception:
-                        has_debt = False
-                    if not has_debt:
-                        try:
-                            import json
-                            from datamate import debts
-                            d_sqls = json.loads(d_file.read_text(encoding="utf-8"))
-                            if d_sqls:
-                                debts.build(connection, d_sqls)
-                        except Exception as err:
-                            print(f"[{business_id}] Bỏ qua tải debt layer từ {d_file.name}: {err}", flush=True)
+                has_v_sales = bool(connection.execute("SELECT 1 FROM information_schema.tables WHERE table_name = 'v_sales'").fetchone())
+                if not has_v_sales:
+                    for issue in self.apply_saved_layers(connection, views_dir, business_id, bool(getattr(self.cfg, "debt_views", True))):
+                        print(f"[{business_id}] Bỏ qua layer {issue['file']}: {issue['error']}"[:400], flush=True)
 
             for table in catalog["tables"]:
                 name = TabularLayout.quote_identifier(table["physical_name"])
