@@ -1,5 +1,6 @@
 """Build SQL context from adapter-produced DuckDB and catalog, never answer keys."""
 import hashlib
+import json
 import re
 from pathlib import Path
 
@@ -135,17 +136,23 @@ class SQLContextBuilder:
                         expression = (f"CAST({col} AS DATE)" if column["duckdb_type"] in ("DATE", "TIMESTAMP") else
                                       f"vn_date_year(CAST({col} AS VARCHAR), {year[0]})" if year
                                       else f"vn_date(CAST({col} AS VARCHAR))")
-                        _, span = SQLExecutor.query(connection, f"SELECT min({expression}), max({expression}) FROM {name}")
-                        item["date_range"] = span[0]
+                        try:
+                            _, span = SQLExecutor.query(connection, f"SELECT min({expression}), max({expression}) FROM {name}")
+                            item["date_range"] = span[0]
+                        except Exception as error:
+                            print(f"[{business_id}] Bỏ qua date_range {table['physical_name']}.{column['physical_name']}: {error}"[:300], flush=True)
                     if re.search(r"trang_thai|status|ket_qua|tinh_trang", column["physical_name"]):
-                        _, counts = SQLExecutor.query(connection,
-                            f"SELECT {col}, count(*) AS n FROM {name} GROUP BY 1 ORDER BY 2 DESC LIMIT 100")
-                        item["values"] = counts
-                        item["revenue_status_values"] = [
-                            {"value": value, "count": count,
-                             "classification": SQLContextBuilder.classify_revenue_status(value)}
-                            for value, count in counts
-                        ]
+                        try:
+                            _, counts = SQLExecutor.query(connection,
+                                f"SELECT {col}, count(*) AS n FROM {name} GROUP BY 1 ORDER BY 2 DESC LIMIT 100")
+                            item["values"] = counts
+                            item["revenue_status_values"] = [
+                                {"value": value, "count": count,
+                                 "classification": SQLContextBuilder.classify_revenue_status(value)}
+                                for value, count in counts
+                            ]
+                        except Exception as error:
+                            print(f"[{business_id}] Bỏ qua giá trị trạng thái {table['physical_name']}.{column['physical_name']}: {error}"[:300], flush=True)
                     columns.append(item)
                 tables.append({"name": table["physical_name"], "sources": table["source_files"],
                                "source_objects": table["source_objects"], "role": table.get("table_role"),
@@ -159,7 +166,7 @@ class SQLContextBuilder:
                    "organization": self.organization_context(catalog),
                    "semantic_views": catalog.get("semantic_views", []),
                    "ingestion_mode": self.cfg.ingestion_mode,
-                   "ingestion_issues": catalog.get("ingestion_issues", []),
+                   "ingestion_issues": self._data_issues(catalog.get("ingestion_issues", [])),
                    "rulebook": split.rulebook,
                    "readme": readme_path.read_text(encoding="utf-8") if readme_path.exists() else ""}
         if split.calendar is not None:
@@ -245,8 +252,19 @@ class SQLContextBuilder:
                         debts.build(connection, statements)
             except Exception as error:
                 issue = {"file": filename, "error": f"{type(error).__name__}: {error}"}
-                meta["ingestion_issues"].append(issue)
+                meta.setdefault("ingestion_issues", []).append(issue)
                 print(f"[direct-ingest] {business_id}/{filename}: {issue['error']}", flush=True)
+
+    @staticmethod
+    def _data_issues(issues):
+        """README/tài liệu .md không phải nguồn dữ liệu: đừng để model coi đó là file dữ liệu bị lỗi."""
+        kept = []
+        for issue in issues or []:
+            text = json.dumps(issue, ensure_ascii=False, default=str).lower()
+            if re.search(r"readme|\.md\b|\.markdown\b", text):
+                continue
+            kept.append(issue)
+        return kept
 
     @staticmethod
     def organization_context(catalog):

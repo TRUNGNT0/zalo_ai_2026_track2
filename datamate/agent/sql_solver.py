@@ -1,4 +1,5 @@
 """Question -> SQL -> read-only DuckDB -> typed answer. Gold is never consulted."""
+import copy
 import hashlib
 import json
 import time
@@ -6,10 +7,11 @@ from collections import Counter
 
 from datamate.agent.solver import Solver, Stats
 from datamate.agent.sql_context import SQLContextBuilder
-from datamate.llm.base import QuotaExhausted
+from datamate.llm.base import GenerationError, QuotaExhausted
 from datamate.llm.prompts import QUESTION_REWRITE_SYSTEM_PROMPT
 from datamate.submission import make_sub
 from datamate.tools.results import canon
+from datamate.text import norm
 from datamate.tools.sql import SQLExecutor
 
 
@@ -42,6 +44,9 @@ type: number|percent|string|date|boolean|list|table|unanswerable.
 - ingestion_mode=direct nghĩa là dữ liệu được đọc và suy kiểu trực tiếp, không có catalog/manifest
   kiểm toán. ingestion_issues liệt kê file không đọc được hoặc không hỗ trợ; nếu câu hỏi cần dữ liệu
   từ các file đó thì phải trả unanswerable, không giả định phần dữ liệu còn lại là đầy đủ.
+  Tài liệu mô tả (README.md, *.md) KHÔNG phải nguồn dữ liệu: mục ingestion_issues của chúng không
+  ảnh hưởng câu trả lời. Chỉ trả unanswerable vì ingestion_issues khi file lỗi rõ ràng là nguồn của
+  số liệu câu hỏi cần; các bảng đọc được vẫn dùng bình thường.
 - Nếu cột ngày dùng để lọc có completeness.parse_failed_count > 0, không được coi tổng trên
   khoảng ngày là đầy đủ. Chỉ truy vấn Raw nếu có thể parse các giá trị bằng chính sách đã xác minh;
   nếu không, trả unanswerable và nêu số ngày lỗi.
@@ -61,6 +66,8 @@ type: number|percent|string|date|boolean|list|table|unanswerable.
 - Tổng hợp các sheet cùng loại và cùng schema bằng UNION ALL khi dữ liệu chia nhiều sheet/tháng.
 - Với number/percent/string/date/boolean: SQL trả đúng một dòng một cột. Percent là 12.5 cho 12.5%.
   List: một cột, nhiều dòng, đúng thứ tự. Table: nhiều cột và alias đúng ý nghĩa câu hỏi.
+- unanswerable là lựa chọn cuối cùng: trước khi chọn, rà từng bảng/cột trong catalog (kể cả tên gần
+  nghĩa, không dấu, viết tắt). Nếu có thể tính bằng SQL từ dữ liệu hiện có thì phải viết SQL.
 - Nếu cần dữ liệu không có, type=unanswerable, sql="", reason giải thích ngắn dựa trên bằng chứng.
   Nếu sinh được SQL, reason mô tả ngắn cách tính. Không được bịa bảng/cột hoặc đáp án.
 """
@@ -69,6 +76,91 @@ SQL_SCHEMA = {"type": "object", "properties": {
     "type": {"type": "string", "enum": ["number", "percent", "string", "date", "boolean", "list", "table", "unanswerable"]},
     "sql": {"type": "string"}, "reason": {"type": "string"}},
     "required": ["type", "sql", "reason"], "additionalProperties": False}
+
+
+MAX_SHRINK_LEVEL = 4
+# Mức thu gọn context khi prompt vượt ngân sách (mức 4 = mức 3 + lược bảng ít liên quan).
+_SHRINK_PLAN = {
+    1: dict(rows=2, chars=60, values=25, readme=12000, exemplars=3),
+    2: dict(rows=1, chars=30, values=10, readme=6000, exemplars=2),
+    3: dict(rows=0, chars=0, values=5, readme=3000, exemplars=1),
+}
+
+
+def _strip_none(value):
+    if isinstance(value, dict):
+        return {k: _strip_none(v) for k, v in value.items() if v is not None}
+    return value
+
+
+def _compact_context(ctx):
+    """Bỏ khóa None/lặp ở cấp cột để giảm token, không đổi ngữ nghĩa (không sửa ctx gốc)."""
+    ctx = dict(ctx)
+    tables = []
+    for table in ctx.get("tables", []):
+        table = dict(table)
+        columns = []
+        for column in table.get("columns", []):
+            column = {k: v for k, v in column.items() if v is not None}
+            if column.get("source_name") == column.get("physical_name"):
+                column.pop("source_name", None)
+            if column.get("revenue_status_values"):
+                column.pop("values", None)        # trùng với revenue_status_values (đã có value + count)
+            for key in ("profile", "completeness"):
+                if isinstance(column.get(key), dict):
+                    column[key] = _strip_none(column[key])
+            columns.append(column)
+        table["columns"] = columns
+        tables.append(table)
+    if "tables" in ctx:
+        ctx["tables"] = tables
+    return ctx
+
+
+def _clip_rows(rows, max_rows, max_chars):
+    clipped = []
+    for row in list(rows)[:max_rows]:
+        if isinstance(row, (list, tuple)):
+            row = [(c[:max_chars] + "…") if isinstance(c, str) and len(c) > max_chars else c for c in row]
+        clipped.append(row)
+    return clipped
+
+
+def _prune_tables(ctx, keep=5):
+    """Mức cuối: chỉ giữ các bảng có tên/cột trùng từ khóa câu hỏi (+ mọi view v_*)."""
+    tables = ctx.get("tables", [])
+    if len(tables) <= keep:
+        return
+    words = {w for w in norm(f"{ctx.get('original_question', '')} {ctx.get('question', '')}").split() if len(w) >= 3}
+
+    def score(table):
+        text = norm(" ".join([str(table.get("name", ""))] + [str(c.get("physical_name", "")) for c in table.get("columns", [])]))
+        return sum(1 for w in words if w in text)
+    ranked = sorted(range(len(tables)), key=lambda i: (-score(tables[i]), i))
+    kept = {i for i, t in enumerate(tables) if str(t.get("name", "")).startswith("v_")} | set(ranked[:keep])
+    dropped = [str(t.get("name")) for i, t in enumerate(tables) if i not in kept]
+    ctx["tables"] = [t for i, t in enumerate(tables) if i in kept]
+    ctx["context_note"] = "Đã lược các bảng ít liên quan do giới hạn độ dài: " + ", ".join(dropped)
+
+
+def _shrink_context(ctx, level):
+    plan = _SHRINK_PLAN[min(level, 3)]
+    ctx = copy.deepcopy(ctx)
+    for table in ctx.get("tables", []):
+        rows = table.get("sample_rows") or []
+        table["sample_rows"] = _clip_rows(rows, plan["rows"], plan["chars"]) if plan["rows"] else []
+        table.pop("lineage", None)
+        for column in table.get("columns", []):
+            if isinstance(column.get("values"), list):
+                column["values"] = column["values"][:plan["values"]]
+    readme = ctx.get("readme")
+    if isinstance(readme, str) and len(readme) > plan["readme"]:
+        ctx["readme"] = readme[:plan["readme"]] + "\n…(đã cắt bớt)"
+    if isinstance(ctx.get("exemplars"), list):
+        ctx["exemplars"] = ctx["exemplars"][:plan["exemplars"]]
+    if level >= 4:
+        _prune_tables(ctx)
+    return ctx
 
 
 class SQLSolver(Solver):
@@ -88,6 +180,20 @@ class SQLSolver(Solver):
                     self.bank = Bank(bp)
                 except Exception as ex:
                     print(f"[sql] Không thể nạp fewshot bank {bp}: {ex}", flush=True)
+
+    def _fit(self, question_context):
+        """Gọn hóa rồi để backend cắt theo ngân sách; nếu vẫn tràn thì thu gọn dần. Trả (context, mức)."""
+        context = _compact_context(question_context)
+        if not hasattr(self.backend, "fit_sql_context"):
+            return context, 0
+        last_error = None
+        for level in range(MAX_SHRINK_LEVEL + 1):
+            trial = context if level == 0 else _shrink_context(context, level)
+            try:
+                return self.backend.fit_sql_context(trial, SQL_SYSTEM, SQL_SCHEMA), level
+            except GenerationError as error:
+                last_error = error
+        raise last_error
 
     def _plan(self, prompt):
         if hasattr(self.backend, "generate_json"):
@@ -149,10 +255,17 @@ class SQLSolver(Solver):
             if not self.cfg.use_hints:
                 question_context.pop("time_hint", None)
                 question_context.pop("hints", None)
-            if hasattr(self.backend, "fit_sql_context"):
-                question_context = self.backend.fit_sql_context(question_context, SQL_SYSTEM, SQL_SCHEMA)
-            prompt = json.dumps(question_context, ensure_ascii=False, default=str)
-            for _ in range(self.cfg.n_samples):
+            shrink_level = 0
+            try:
+                question_context, shrink_level = self._fit(question_context)
+                if shrink_level:
+                    print(f"[sql] {r.id}: context quá dài, đã thu gọn mức {shrink_level}", flush=True)
+            except GenerationError as error:
+                errors.append({"attempt": 0, "plan": None, "error": f"context: {error}"[:1500]})
+                question_context = None
+            prompt = (json.dumps(question_context, ensure_ascii=False, default=str, separators=(",", ":"))
+                      if question_context is not None else "")
+            for _ in range(self.cfg.n_samples if question_context is not None else 0):
                 repair = ""
                 for attempt in range(self.cfg.max_retry + 1):
                     plan = None
@@ -187,14 +300,20 @@ class SQLSolver(Solver):
         log = {"id": r.id, "business_id": r.business_id, "as_of_date": r.as_of_date,
                "question": original, "rewritten_question": rewritten, "rewrite_error": rewrite_error,
                "type": typ, "answer": answer, "source": "sql" if decision else "abstain",
-               "intent": "sql" if decision else "sql_no_consensus", "note": decision["reason"] if decision else "",
+               "intent": "sql" if decision else ("sql_context_overflow" if question_context is None else "sql_no_consensus"), "note": decision["reason"] if decision else "",
                "sql": decision["sql"] if decision else None, "database": str(database),
                "database_sha256": fingerprint, "agree": max(votes.values(), default=0),
                "codes": [s["sql"] for s in samples], "sample_results": [s["canon"] for s in samples],
                "samples": samples, "errors": errors, "cache_hit": False,
+               "context_shrink_level": shrink_level,
                "elapsed_s": round(time.monotonic() - started, 3)}
-        if decision and not errors and not rewrite_error:
+        if decision and not rewrite_error and question_context is not None:
             cache.put({"id": r.id, "hash": key, "decision": [typ, answer],
                        "samples": samples, "submission": submission, "log": log})
-        print(f"[sql] {r.id}: {typ}, agree={log['agree']}, lỗi thực thi/sinh={len(errors)}", flush=True)
+        detail = ""
+        if decision and typ == "unanswerable":
+            detail = f" | lý do: {decision['reason'][:200]}"
+        elif errors:
+            detail = f" | lỗi đầu: {errors[0]['error'][:200]}"
+        print(f"[sql] {r.id}: {typ}, agree={log['agree']}, lỗi thực thi/sinh={len(errors)}{detail}", flush=True)
         return submission, log
