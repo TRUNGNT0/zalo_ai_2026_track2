@@ -211,14 +211,17 @@ class LocalSQLPipeline:
         cfg = replace(self.split_config("train"), per_biz=per_biz)
         return run_train(cfg, self.llm, subset=subset, holdout_n=holdout_n)
 
-    def predict_public_test(self):
+    def predict_split(self, split):
         from datamate.agent.pipeline import run_inference
-        self.validate_databases(("public_test",))
-        cfg = self.split_config("public_test")
+        self.validate_databases((split,))
+        cfg = self.split_config(split)
         _, _, problems = run_inference(cfg, self.llm)
         if problems:
             raise RuntimeError(f"Invalid submission: {problems[:10]}")
         return Path(cfg.out_dir) / "submission.jsonl"
+
+    def predict_public_test(self):
+        return self.predict_split("public_test")
 
     def run_all(self):
         self.prepare_datasets()
