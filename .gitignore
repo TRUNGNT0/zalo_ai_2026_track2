@@ -1,8 +1,13 @@
 # Competition data (regulations 4.3: stays with the team), model weights, run outputs
-data/
-models/
-runs/
-outputs/
+/data/
+/models/
+/runs/
+/outputs/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
 
 # Python, notebooks, tooling
 __pycache__/
