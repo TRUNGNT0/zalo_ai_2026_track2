@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <title>Database Relationships & Schema Lineage</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background: #f9f9f9; }
+        #canvas { border: 1px solid #ccc; width: 100%; height: 600px; background: #fff; }
+    </style>
+</head>
+<body>
+    <h1>Schema & Relationship Diagram</h1>
+    <div id="canvas"></div>
+    <script id="data" type="application/json">@@GRAPH_DATA@@</script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            var el = document.getElementById('data');
+            if (el) {
+                try {
+                    var data = JSON.parse(el.textContent);
+                    console.log('Diagram data loaded:', data);
+                } catch(e) {
+                    console.error('Failed to parse diagram data:', e);
+                }
+            }
+        });
+    </script>
+</body>
+</html>

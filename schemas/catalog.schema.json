@@ -1,0 +1,662 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Business Catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "catalog_version",
+    "business_id",
+    "database_file",
+    "tables",
+    "facts",
+    "unresolved",
+    "relationships"
+  ],
+  "properties": {
+    "catalog_version": {
+      "const": "1.0"
+    },
+    "business_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "database_file": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tables": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/table"
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/relationship"
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "fact_id",
+          "value",
+          "source_refs"
+        ],
+        "properties": {
+          "fact_id": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          },
+          "source_refs": {
+            "$ref": "#/$defs/source_refs"
+          }
+        }
+      }
+    },
+    "unresolved": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "rule_refs": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage",
+        "capabilities"
+      ],
+      "properties": {
+        "coverage": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "source_columns",
+            "documented_columns",
+            "unresolved_columns"
+          ],
+          "properties": {
+            "source_columns": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "documented_columns": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "unresolved_columns": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "revenue",
+            "receivables",
+            "inventory_as_of",
+            "gross_profit"
+          ],
+          "properties": {
+            "revenue": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "missing_semantics",
+                "missing_rules",
+                "required_review"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "blocked",
+                    "partial"
+                  ]
+                },
+                "missing_semantics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "missing_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required_review": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "receivables": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "missing_semantics",
+                "missing_rules",
+                "required_review"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "blocked",
+                    "partial"
+                  ]
+                },
+                "missing_semantics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "missing_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required_review": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "inventory_as_of": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "missing_semantics",
+                "missing_rules",
+                "required_review"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "blocked",
+                    "partial"
+                  ]
+                },
+                "missing_semantics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "missing_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required_review": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "gross_profit": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status",
+                "missing_semantics",
+                "missing_rules",
+                "required_review"
+              ],
+              "properties": {
+                "status": {
+                  "enum": [
+                    "blocked",
+                    "partial"
+                  ]
+                },
+                "missing_semantics": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "missing_rules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "required_review": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "pipeline_version": {
+      "type": "string"
+    },
+    "input_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "organization": {
+      "type": "object"
+    },
+    "semantic_views": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "$defs": {
+    "relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relationship_id",
+        "from_table",
+        "from_columns",
+        "to_table",
+        "to_columns",
+        "status",
+        "source",
+        "source_file"
+      ],
+      "properties": {
+        "relationship_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from_table": {
+          "type": "string",
+          "minLength": 1
+        },
+        "from_columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "to_table": {
+          "type": "string",
+          "minLength": 1
+        },
+        "to_columns": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "status": {
+          "enum": [
+            "declared_not_data_verified",
+            "verified",
+            "candidate",
+            "failed_validation"
+          ]
+        },
+        "source": {
+          "enum": [
+            "sqlite_foreign_key",
+            "readme",
+            "inferred_candidate"
+          ]
+        },
+        "source_file": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target_source_file": {
+          "type": "string"
+        },
+        "cardinality": {
+          "enum": [
+            "many_to_one",
+            "one_to_one"
+          ]
+        },
+        "source_refs": {
+          "$ref": "#/$defs/source_refs"
+        },
+        "validation": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scope",
+            "source_null_rows",
+            "target_null_rows",
+            "source_duplicate_keys",
+            "target_duplicate_keys",
+            "orphan_rows"
+          ],
+          "properties": {
+            "scope": {
+              "const": "full_data"
+            },
+            "source_null_rows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "target_null_rows": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "source_duplicate_keys": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "target_duplicate_keys": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "orphan_rows": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        }
+      }
+    },
+    "source_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "topic",
+        "reason",
+        "needed_evidence"
+      ],
+      "properties": {
+        "topic": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "needed_evidence": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "table": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "table_id",
+        "physical_name",
+        "table_role",
+        "source_files",
+        "source_objects",
+        "header",
+        "row_count",
+        "columns",
+        "source_refs"
+      ],
+      "properties": {
+        "table_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "physical_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "table_role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_files": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "source_objects": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "header": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "status",
+            "source_row_number"
+          ],
+          "properties": {
+            "status": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source_row_number": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          }
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "columns": {
+          "type": "array",
+          "minItems": 0,
+          "items": {
+            "$ref": "#/$defs/column"
+          }
+        },
+        "source_refs": {
+          "$ref": "#/$defs/source_refs"
+        },
+        "grain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lineage": {
+          "type": "object"
+        },
+        "issue_counts": {
+          "type": "object"
+        }
+      }
+    },
+    "column": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_name",
+        "physical_name",
+        "semantic_name",
+        "description",
+        "duckdb_type",
+        "source_type",
+        "type_status",
+        "aliases",
+        "profile",
+        "source_mappings"
+      ],
+      "properties": {
+        "source_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "physical_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "semantic_name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "source_type": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "duckdb_type": {
+          "type": "string",
+          "pattern": "^(BIGINT|HUGEINT|DOUBLE|BOOLEAN|DATE|TIMESTAMP|VARCHAR|DECIMAL\\(\\d+,\\d+\\))$"
+        },
+        "type_status": {
+          "const": "profiled"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "row_count",
+            "null_count"
+          ],
+          "properties": {
+            "row_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "null_count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "parse_failed_count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "source_mappings": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source_file",
+              "source_object",
+              "source_name",
+              "mapping_status",
+              "source_refs"
+            ],
+            "properties": {
+              "source_file": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_object": {
+                "type": "string",
+                "minLength": 1
+              },
+              "source_name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "mapping_status": {
+                "enum": [
+                  "documented_header_match",
+                  "unmapped"
+                ]
+              },
+              "source_refs": {
+                "$ref": "#/$defs/source_refs"
+              }
+            }
+          }
+        },
+        "semantic_status": {
+          "enum": [
+            "documented",
+            "inferred_candidate",
+            "unresolved"
+          ]
+        },
+        "unit_basis": {
+          "type": "string"
+        },
+        "time_role": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "aggregation": {
+          "type": "string"
+        },
+        "conversion": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

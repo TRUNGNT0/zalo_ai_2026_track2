@@ -1,0 +1,10 @@
+# Server GPU & Training dependencies for Qwen3.5 / LoRA / vLLM
+-r requirements.txt
+transformers>=5.2,<6
+accelerate>=0.28.0
+huggingface_hub
+bitsandbytes
+peft>=0.10.0
+trl>=0.8.0
+# vllm is supported on Linux server GPU:
+# vllm>=0.32.0; platform_system != "Windows"
