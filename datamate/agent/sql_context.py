@@ -230,30 +230,49 @@ class SQLContextBuilder:
         if self.cfg.views == "none":
             return
         views_dir = Path(getattr(self.cfg, "views_from", "configs/public_v9") or "configs/public_v9")
-        for filename, builder in (
-            (f"_views_{business_id}.json", "views"),
-            (f"_debt_{business_id}.json", "debts"),
-        ):
-            if builder == "debts" and not self.cfg.debt_views:
-                continue
-            path = views_dir / filename
-            if not path.is_file():
-                continue
+        for issue in self.apply_saved_layers(connection, views_dir, business_id, bool(self.cfg.debt_views)):
+            meta.setdefault("ingestion_issues", []).append(issue)
+            print(f"[direct-ingest] {business_id}/{issue['file']}: {issue['error']}"[:400], flush=True)
+
+    @staticmethod
+    def _saved_layer_path(views_dir, filename):
+        """File layer đã lưu nằm ở <views_dir>/logs/<filename> (cách pipeline.py ghi/đọc); chấp nhận cả <views_dir>/<filename>."""
+        for candidate in (Path(views_dir) / "logs" / filename, Path(views_dir) / filename):
+            if candidate.is_file():
+                return candidate
+        return None
+
+    @staticmethod
+    def apply_saved_layers(connection, views_dir, business_id, debt_views=True):
+        """Dựng v_sales/v_orders (+ debt layer) từ JSON đã lưu. Trả về danh sách lỗi (rỗng nếu ổn)."""
+        import json
+        from datamate import views, debts
+        issues = []
+        vp = SQLContextBuilder._saved_layer_path(views_dir, f"_views_{business_id}.json")
+        if vp is None:
+            issues.append({"file": f"_views_{business_id}.json", "error": f"Không tìm thấy trong {views_dir}(/logs)"})
+        else:
             try:
-                import json
-                if builder == "views":
-                    from datamate import views
-                    statements = json.loads(path.read_text(encoding="utf-8"))
-                    views.build(connection, statements)
+                saved = json.loads(vp.read_text(encoding="utf-8"))
+                sql = saved.get("sql") if isinstance(saved, dict) else saved
+                sql = views.rewrap(sql)
+                if sql:
+                    views.build(connection, sql)
                 else:
-                    from datamate import debts
-                    statements = json.loads(path.read_text(encoding="utf-8"))
-                    if statements:
-                        debts.build(connection, statements)
+                    issues.append({"file": vp.name, "error": "JSON không có trường 'sql'"})
             except Exception as error:
-                issue = {"file": filename, "error": f"{type(error).__name__}: {error}"}
-                meta.setdefault("ingestion_issues", []).append(issue)
-                print(f"[direct-ingest] {business_id}/{filename}: {issue['error']}", flush=True)
+                issues.append({"file": vp.name, "error": f"{type(error).__name__}: {error}"})
+        if debt_views:
+            dp = SQLContextBuilder._saved_layer_path(views_dir, f"_debt_{business_id}.json")
+            if dp is not None:
+                try:
+                    saved = json.loads(dp.read_text(encoding="utf-8"))
+                    sqls = saved.get("sqls") if isinstance(saved, dict) else saved
+                    if sqls and (not isinstance(saved, dict) or saved.get("used", True)):
+                        debts.build(connection, sqls)
+                except Exception as error:
+                    issues.append({"file": dp.name, "error": f"{type(error).__name__}: {error}"})
+        return issues
 
     @staticmethod
     def _data_issues(issues):
